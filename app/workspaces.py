@@ -105,12 +105,18 @@ class WorkspaceManager:
 
     @staticmethod
     def _resolve_within(base: Path, rel_path: str) -> Path:
-        """Resolve rel_path under base; raise WorkspaceError on any escape."""
+        """Resolve rel_path under base; raise WorkspaceError on any escape.
+
+        base is resolved first so comparisons are against its canonical form
+        (Windows 8.3 short names like WENYUA~1 would otherwise mismatch the
+        expanded path of the candidate and cause false rejections).
+        """
         if not rel_path or "\x00" in rel_path:
             raise WorkspaceError("invalid path")
-        candidate = (base / rel_path).resolve()
+        base_resolved = base.resolve()
+        candidate = (base_resolved / rel_path).resolve()
         try:
-            candidate.relative_to(base)
+            candidate.relative_to(base_resolved)
         except ValueError:
             raise WorkspaceError("path escape blocked") from None
         return candidate
