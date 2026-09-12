@@ -169,3 +169,40 @@ async def test_owner_dashboard_served(client):
     res = await c.get("/admin")
     assert res.status_code == 200
     assert "Owner dashboard" in res.text
+
+
+async def test_owner_token_high_bytes_gets_401_not_500(client):
+    """Bearer tokens with high bytes must be rejected cleanly (L2).
+
+    httpx refuses non-ASCII headers client-side, so this unit-tests the
+    comparison function directly (the actual transport path uses latin-1).
+    """
+    c, h = client
+    from app.auth import verify_owner_token
+    st = h.app.state.silentary
+    assert verify_owner_token("café".encode("utf-8").decode("latin-1"), st.settings) is False
+    assert verify_owner_token("café", st.settings) is False  # unicode str: no TypeError
+    assert verify_owner_token("test-owner-token", st.settings) is True
+
+
+async def test_delete_visitor_removes_transcripts(client):
+    """Owner delete must also delete nanobot transcripts (privacy, M3)."""
+    c, h = client
+    res = await c.post("/api/owner/visitors", headers=h.owner_headers,
+                       json={"name": "Vanish"})
+    data = res.json()
+    vid, token = data["visitor"]["id"], data["token"]
+
+    # have a conversation (stub agent records history)
+    auth = {"Authorization": f"Bearer {token}"}
+    sk = (await c.post("/api/visitor/sessions", headers=auth)).json()["session_key"]
+    await c.post("/api/visitor/chat", headers=auth,
+                 json={"session_key": sk, "message": "remember me"})
+
+    # delete the visitor
+    res = await c.delete(f"/api/owner/visitors/{vid}", headers=h.owner_headers)
+    assert res.status_code == 200
+
+    # the adapter's delete_all_sessions must have been invoked for this visitor
+    assert vid in h.agent.deleted_all
+    assert h.agent.history_store.get((vid, sk)) is None

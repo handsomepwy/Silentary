@@ -34,6 +34,38 @@ async def test_rate_limiter_unit():
     assert limiter.check("r", "a") is True
 
 
+def test_rate_limiter_fail_closed_on_unknown_rule():
+    limiter = TokenBucketLimiter()
+    assert limiter.check("never_registered", "x") is False
+
+
+def test_rate_limiter_eviction():
+    limiter = TokenBucketLimiter(max_buckets=10)
+    limiter.add_rule("r", capacity=1000, refill_per_second=1000)
+    for i in range(50):
+        limiter.check("r", f"key-{i}")
+    # internal state stays bounded
+    assert len(limiter._buckets) <= 10
+
+
+async def test_daily_chat_quota(client):
+    c, h = client
+    visitor, token = await h.make_visitor("QuotaUser")
+    st = h.app.state.silentary
+    st.settings.chat_daily_quota = 2  # tighten for the test
+    auth = {"Authorization": f"Bearer {token}"}
+    res = await c.post("/api/visitor/sessions", headers=auth)
+    sk = res.json()["session_key"]
+    for i in range(2):
+        res = await c.post("/api/visitor/chat", headers=auth,
+                           json={"session_key": sk, "message": f"m{i}"})
+        assert res.status_code == 200
+    res = await c.post("/api/visitor/chat", headers=auth,
+                       json={"session_key": sk, "message": "m3"})
+    assert res.status_code == 429
+    assert "quota" in res.json()["error"]
+
+
 async def test_card_created_via_tool_direct(client):
     """submit_card writes a card row associated with the right visitor."""
     c, h = client

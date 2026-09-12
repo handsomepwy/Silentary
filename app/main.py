@@ -58,10 +58,18 @@ def _get_state(request: Request) -> AppState:
 
 
 def _client_ip(request: Request) -> str:
-    xff = request.headers.get("x-forwarded-for")
-    if xff:
-        # Nginx is the trusted proxy; it appends the client address as first hop.
-        return xff.split(",")[0].strip() or "unknown"
+    """Client identity for rate limiting.
+
+    Trusts X-Forwarded-For ONLY when SILENTARY_TRUST_PROXY_HEADERS is set —
+    i.e. the documented deployment where nginx overwrites XFF with
+    $remote_addr. Without it, a client could spoof per-IP buckets by sending
+    their own XFF header, so we fall back to the socket peer.
+    """
+    state = _get_state(request)
+    if state.settings.trust_proxy_headers:
+        xff = request.headers.get("x-forwarded-for")
+        if xff:
+            return xff.split(",")[0].strip() or "unknown"
     return request.client.host if request.client else "unknown"
 
 
@@ -203,8 +211,10 @@ def _register_visitor_routes(app: FastAPI) -> None:
         token = (body.get("token") or "").strip()
         if not state.limiter.check("login_ip", ip):
             return _json_error(429, "too many attempts, slow down")
-        if token and not state.limiter.check("login_token", token[:8]):
-            # rate limit per token prefix so brute force on one token stalls
+        if token and not state.limiter.check("login_token", dbm.hash_token(token)[:16]):
+            # bucket keyed on the full-token hash: uniform, unlinkable, and
+            # still stalls repeated guesses of one token (an attacker-visible
+            # prefix like the visitor's name would enable targeted lockout)
             return _json_error(429, "too many attempts, slow down")
         try:
             auth = await asyncio.to_thread(authenticate_visitor, token, state.database)
@@ -282,10 +292,16 @@ def _register_visitor_routes(app: FastAPI) -> None:
             return _json_error(404, "session not found")
         if state.agent is None:
             return _json_error(503, "agent unavailable")
+        # Hard daily cost ceiling per visitor (M2).
+        turns_today = await asyncio.to_thread(state.database.chat_turns_today,
+                                              auth.visitor_id)
+        if turns_today >= state.settings.chat_daily_quota:
+            return _json_error(429, "daily message quota reached, try again tomorrow")
         try:
             result = await state.agent.chat(auth.visitor_id, session_key, message)
         except AgentError as exc:
             return _json_error(503, str(exc))
+        await asyncio.to_thread(state.database.record_chat_turn, auth.visitor_id)
         await asyncio.to_thread(
             state.database.touch_session, auth.visitor_id, session_key,
             message[:60],
@@ -295,6 +311,9 @@ def _register_visitor_routes(app: FastAPI) -> None:
     @app.delete("/api/visitor/sessions/{session_key}")
     async def visitor_delete_session(request: Request, session_key: str):
         state = _get_state(request)
+        ip = _client_ip(request)
+        if not state.limiter.check("messages_ip", ip):
+            return _json_error(429, "too many requests")
         auth = _require_visitor(request)
         if not _SESSION_KEY_RE.match(session_key):
             return _json_error(404, "session not found")
@@ -380,7 +399,14 @@ def _register_owner_routes(app: FastAPI) -> None:
         ok = await asyncio.to_thread(state.database.delete_visitor, visitor_id)
         if not ok:
             return _json_error(404, "visitor not found")
-        # Best-effort cleanup of workspace dir + nanobot sessions.
+        # Privacy (M3): the conversation transcripts are private data — delete
+        # every nanobot session belonging to this visitor, not just DB rows.
+        if state.agent is not None:
+            try:
+                await state.agent.delete_all_sessions(visitor_id)
+            except AgentError:
+                pass
+        # Best-effort cleanup of workspace dir.
         try:
             await asyncio.to_thread(state.workspaces.delete_visitor_dir, visitor_id)
         except WorkspaceError:

@@ -42,6 +42,16 @@ class Settings:
     agent_max_context_chars: int = 4000  # bound for injected workspace context
     rag_top_k: int = 6
 
+    # --- security topology ---
+    # True ONLY when the app is behind a trusted reverse proxy that overwrites
+    # X-Forwarded-For (the bundled nginx config does). When False (direct
+    # exposure / unknown topology), client IP for rate limiting falls back to
+    # the socket peer, so XFF spoofing cannot bypass per-IP buckets.
+    trust_proxy_headers: bool = False
+
+    # --- cost ceiling (M2): hard daily chat-turn quota ---
+    chat_daily_quota: int = 200  # max agent turns per visitor per UTC day
+
     # --- derived paths ---
     @property
     def db_path(self) -> Path:
@@ -100,6 +110,11 @@ def load_settings() -> Settings:
     s.provider_name = os.environ.get("SILENTARY_PROVIDER", file_cfg.get("provider", ""))
     s.agent_max_context_chars = int(file_cfg.get("agent_max_context_chars", s.agent_max_context_chars))
     s.rag_top_k = int(file_cfg.get("rag_top_k", s.rag_top_k))
+    s.trust_proxy_headers = os.environ.get(
+        "SILENTARY_TRUST_PROXY_HEADERS", str(file_cfg.get("trust_proxy_headers", s.trust_proxy_headers))
+    ).lower() in ("1", "true", "yes")
+    s.chat_daily_quota = int(os.environ.get(
+        "SILENTARY_CHAT_DAILY_QUOTA", file_cfg.get("chat_daily_quota", s.chat_daily_quota)))
 
     # For local development convenience only: if no owner token is configured,
     # generate one and persist it to the data dir so the owner can retrieve it.

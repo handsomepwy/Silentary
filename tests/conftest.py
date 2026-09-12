@@ -28,6 +28,7 @@ class StubAgentService:
     def __init__(self):
         self.history_store: dict[tuple[str, str], list[dict]] = {}
         self.deleted: list[tuple[str, str]] = []
+        self.deleted_all: list[str] = []
         self.chat_calls: list[tuple[str, str, str]] = []
         self.fail_chat = False
 
@@ -59,6 +60,12 @@ class StubAgentService:
     async def delete_session(self, visitor_id, session_key):
         self.deleted.append((visitor_id, session_key))
         self.history_store.pop((visitor_id, session_key), None)
+        return True
+
+    async def delete_all_sessions(self, visitor_id):
+        self.deleted_all.append(visitor_id)
+        for key in [k for k in self.history_store if k[0] == visitor_id]:
+            del self.history_store[key]
         return True
 
 

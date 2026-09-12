@@ -245,3 +245,15 @@ class NanobotAgentService:
             raise AgentError("agent service not started")
         ns_key = nanobot_session_key(visitor_id, session_key)
         return bool(self._bot.sessions.delete(ns_key))
+
+    async def delete_all_sessions(self, visitor_id: str) -> int:
+        """Delete every nanobot session for a visitor (privacy on deletion)."""
+        if self._bot is None:
+            raise AgentError("agent service not started")
+        prefix = f"visitor:{visitor_id}:"
+        deleted = 0
+        for info in self._bot.sessions.list():
+            if info.key.startswith(prefix):
+                if self._bot.sessions.delete(info.key):
+                    deleted += 1
+        return deleted

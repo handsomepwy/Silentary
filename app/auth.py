@@ -43,7 +43,10 @@ def hash_owner_token(token: str) -> str:
 def verify_owner_token(provided: str, settings: Settings) -> bool:
     if not settings.owner_token or not provided:
         return False
-    return hmac.compare_digest(provided, settings.owner_token)
+    # Compare sha256 digests: constant-time AND safe for non-ASCII input
+    # (header values are latin-1; compare_digest would raise on unicode).
+    return hmac.compare_digest(hash_owner_token(provided),
+                               hash_owner_token(settings.owner_token))
 
 
 def authenticate_visitor(token: str, database: dbm.Database) -> VisitorAuth:

@@ -58,6 +58,13 @@ CREATE TABLE IF NOT EXISTS cards (
 );
 CREATE INDEX IF NOT EXISTS idx_cards_visitor ON cards(visitor_id);
 CREATE INDEX IF NOT EXISTS idx_cards_status ON cards(status);
+
+CREATE TABLE IF NOT EXISTS usage_daily (
+    visitor_id TEXT NOT NULL,
+    day TEXT NOT NULL,
+    chat_turns INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (visitor_id, day)
+);
 """
 
 
@@ -324,6 +331,36 @@ class Database:
         with self._connect() as conn:
             row = conn.execute("SELECT * FROM cards WHERE id = ?", (card_id,)).fetchone()
         return dict(row) if row else None
+
+    # ------------------------------------------------------------------
+    # usage quota (cost ceiling, M2)
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _today() -> str:
+        return time.strftime("%Y-%m-%d", time.gmtime())
+
+    def chat_turns_today(self, visitor_id: str) -> int:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT chat_turns FROM usage_daily WHERE visitor_id = ? AND day = ?",
+                (visitor_id, self._today()),
+            ).fetchone()
+        return int(row["chat_turns"]) if row else 0
+
+    def record_chat_turn(self, visitor_id: str) -> int:
+        """Increment and return today's turn count for the visitor."""
+        with self._lock, self._connect() as conn:
+            conn.execute(
+                "INSERT INTO usage_daily (visitor_id, day, chat_turns) VALUES (?, ?, 1)"
+                " ON CONFLICT(visitor_id, day) DO UPDATE SET chat_turns = chat_turns + 1",
+                (visitor_id, self._today()),
+            )
+            row = conn.execute(
+                "SELECT chat_turns FROM usage_daily WHERE visitor_id = ? AND day = ?",
+                (visitor_id, self._today()),
+            ).fetchone()
+        return int(row["chat_turns"]) if row else 0
 
 
 # ----------------------------------------------------------------------
