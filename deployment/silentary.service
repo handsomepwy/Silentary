@@ -1,0 +1,28 @@
+[Unit]
+Description=Silentary personal AI secretary platform
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# !!! Adjust User, WorkingDirectory and EnvironmentFile to your deployment !!!
+User=silentary
+Group=silentary
+WorkingDirectory=/opt/silentary
+EnvironmentFile=/opt/silentary/.env
+
+# venv python runs uvicorn programmatically to reuse app settings
+ExecStart=/opt/silentary/.venv/bin/python run.py
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=always
+RestartSec=5
+
+# Hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/opt/silentary/data /opt/silentary/workspaces
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target
