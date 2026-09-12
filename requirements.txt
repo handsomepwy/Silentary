@@ -1,0 +1,26 @@
+# Runtime deps. Install with:
+#   pip install -r requirements.txt
+#
+# NOTE (MicroRAG): microrag 0.2.2 metadata pins Python >=3.12 but the wheel
+# compiles and runs correctly on 3.11. Install it separately:
+#   pip install --ignore-requires-python --no-deps microrag
+# and the remaining microrag deps are covered below (pinned 3.11-compatible).
+#
+# NOTE (Windows local dev): nanobot-ai requires Python >= 3.11.
+
+fastapi>=0.115
+uvicorn[standard]>=0.30
+nanobot-ai>=0.3.0,<0.4
+
+# microrag runtime deps (microrag itself installed per note above)
+numpy<2.3
+duckdb>=0.9.0
+pyarrow>=23.0.0
+rank-bm25>=0.2.2
+fastembed>=0.2.0
+onnxruntime>=1.17.0
+
+# dev/test
+pytest>=8.0
+pytest-asyncio>=0.23
+httpx>=0.27
