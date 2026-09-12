@@ -79,12 +79,17 @@ class NanobotAgentService:
                 str(self.settings.nanobot_config_path),
                 workspace=str(self.settings.nanobot_workspace),
             )
+            # Security: remove every built-in tool (exec/web/file/etc. must
+            # never be reachable by visitors), then register exactly our two.
+            for name in list(bot._loop.tools.tool_names):
+                bot._loop.tools.unregister(name)
             # Custom tools (after construction — builtins already registered).
             bot._loop.tools.register(SubmitCardTool(self.database))
             bot._loop.tools.register(RagSearchTool(self.rag))
             bot._loop.register_runtime_context_provider(self._context_provider)
             self._bot = bot
-            logger.info("nanobot agent started (model=%s)", self.settings.model)
+            logger.info("nanobot agent started (model=%s) tools=%s",
+                        self.settings.model, bot._loop.tools.tool_names)
 
     async def stop(self) -> None:
         async with self._lock:
