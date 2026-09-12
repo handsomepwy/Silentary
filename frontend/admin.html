@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Silentary Dashboard</title>
+<style>
+  :root {
+    --bg: #0f1115; --panel: #171a21; --panel2: #1d212b; --text: #e6e9ef;
+    --muted: #8b93a7; --accent: #6c8cff; --border: #2a2f3d;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    background: var(--bg); color: var(--text); }
+  .hidden { display: none !important; }
+  input, textarea, button, select {
+    font: inherit; color: var(--text); background: var(--panel2);
+    border: 1px solid var(--border); border-radius: 8px;
+  }
+  input, textarea { width: 100%; padding: 8px 10px; }
+  textarea { resize: vertical; min-height: 70px; }
+  button { padding: 8px 14px; cursor: pointer; border: none; }
+  button.primary { background: var(--accent); color: #fff; }
+  button.primary:disabled { opacity: .5; }
+  button.danger { background: #5a2323; color: #ffb4b4; }
+  button.ghost { background: var(--panel2); }
+  label { font-size: 12px; color: var(--muted); display: block; margin: 10px 0 4px; }
+  .err { color: #ff7a7a; font-size: 13px; margin-top: 8px; min-height: 18px; }
+  .ok { color: #7ce38b; font-size: 13px; min-height: 18px; }
+
+  #login { margin: 12vh auto; width: min(380px, 90vw); background: var(--panel);
+    border: 1px solid var(--border); border-radius: 12px; padding: 28px; }
+  #login h1 { font-size: 20px; margin: 0 0 4px; }
+  #login p { color: var(--muted); font-size: 13px; margin: 0 0 14px; }
+
+  #shell { display: flex; min-height: 100vh; }
+  nav {
+    width: 220px; background: var(--panel); border-right: 1px solid var(--border);
+    padding: 14px; display: flex; flex-direction: column; gap: 4px;
+  }
+  nav .brand { font-weight: 700; margin-bottom: 12px; }
+  nav button { text-align: left; background: none; color: var(--muted); padding: 8px 10px; }
+  nav button.active { background: var(--panel2); color: var(--text); border-radius: 8px; }
+  main { flex: 1; padding: 20px; max-width: 1100px; }
+  h2 { font-size: 18px; margin: 0 0 14px; }
+  h3 { font-size: 14px; margin: 18px 0 8px; color: var(--muted); font-weight: 600; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); }
+  th { color: var(--muted); font-weight: 600; font-size: 12px; }
+  tr.clickable:hover { background: var(--panel2); cursor: pointer; }
+
+  .card { background: var(--panel); border: 1px solid var(--border);
+    border-radius: 10px; padding: 14px; margin-bottom: 10px; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px;
+    background: var(--panel2); color: var(--muted); }
+  .badge.unread { background: #4a3b15; color: #ffd977; }
+  .badge.resolved { background: #173d24; color: #7ce38b; }
+  .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .row .grow { flex: 1; }
+  code, pre { font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
+  pre { background: var(--panel2); padding: 10px; border-radius: 8px; overflow-x: auto;
+    white-space: pre-wrap; word-break: break-word; }
+  .tokenBox { background: #3d2f14; border: 1px solid #6b5416; padding: 12px;
+    border-radius: 8px; margin: 10px 0; word-break: break-all; font-family: monospace; }
+  .muted { color: var(--muted); font-size: 12px; }
+  dialog { background: var(--panel); color: var(--text); border: 1px solid var(--border);
+    border-radius: 12px; padding: 20px; width: min(520px, 92vw); }
+  dialog::backdrop { background: rgba(0,0,0,.6); }
+</style>
+</head>
+<body>
+
+<!-- login -->
+<div id="login">
+  <h1>Owner dashboard</h1>
+  <p>Enter the owner token to continue.</p>
+  <input id="ownerToken" type="password" placeholder="Owner token" autocomplete="off">
+  <button class="primary" id="loginBtn">Sign in</button>
+  <div class="err" id="loginErr"></div>
+</div>
+
+<!-- dashboard -->
+<div id="shell" class="hidden">
+  <nav>
+    <div class="brand">Silentary</div>
+    <button data-view="visitors" class="active">Visitors</button>
+    <button data-view="cards">Cards</button>
+    <div class="spacer" style="flex:1"></div>
+    <button id="logoutBtn">Log out</button>
+  </nav>
+  <main>
+    <!-- visitors list -->
+    <section id="view-visitors">
+      <div class="row">
+        <h2 class="grow">Visitors</h2>
+        <button class="ghost" id="reloadBtn">Reload</button>
+        <button class="primary" id="addVisitorBtn">+ Add visitor</button>
+      </div>
+      <table id="visitorsTable">
+        <thead><tr><th>Name</th><th>Relationship</th><th>Sessions</th><th>Unread cards</th><th>Created</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </section>
+
+    <!-- visitor detail -->
+    <section id="view-visitor" class="hidden">
+      <div class="row">
+        <button class="ghost" id="backBtn">← Back</button>
+        <h2 class="grow" id="visitorName"></h2>
+        <button class="ghost" id="newCredBtn">Issue new credential</button>
+        <button class="danger" id="deleteVisitorBtn">Delete visitor</button>
+      </div>
+      <div class="row" style="margin:10px 0">
+        <div class="grow">
+          <label>Relationship</label>
+          <input id="vRelationship">
+        </div>
+      </div>
+      <label>Disclosure boundary (Markdown — instructions the agent must respect for this visitor)</label>
+      <textarea id="vDisclosure" rows="4"></textarea>
+      <div class="row" style="margin:10px 0">
+        <button class="primary" id="saveVisitorBtn">Save</button>
+        <span class="ok" id="visitorSaved"></span>
+      </div>
+
+      <h3>Credentials</h3>
+      <div id="credTokenBox" class="tokenBox hidden"></div>
+      <table id="credsTable">
+        <thead><tr><th>Prefix</th><th>Created</th><th>Status</th><th></th></tr></thead>
+        <tbody></tbody>
+      </table>
+
+      <h3>Sessions</h3>
+      <table id="sessionsTable">
+        <thead><tr><th>Session</th><th>Title</th><th>Created</th><th>Updated</th></tr></thead>
+        <tbody></tbody>
+      </table>
+
+      <h3>Workspace files</h3>
+      <div id="wsFiles" class="muted"></div>
+      <div class="row" style="margin:8px 0">
+        <input id="wsFileName" placeholder="new-file.md" style="max-width:220px">
+        <button class="ghost" id="wsNewFileBtn">Create / edit file</button>
+      </div>
+      <textarea id="wsEditor" rows="12" placeholder="Select or create a Markdown file…"></textarea>
+      <div class="row" style="margin:8px 0">
+        <button class="primary" id="wsSaveBtn">Save file</button>
+        <span class="ok" id="wsSaved"></span>
+        <span class="muted">Workspace Markdown is the agent's knowledge base for this visitor (RAG-indexed automatically).</span>
+      </div>
+    </section>
+
+    <!-- session transcript -->
+    <section id="view-session" class="hidden">
+      <div class="row">
+        <button class="ghost" id="sessBackBtn">← Back</button>
+        <h2 class="grow" id="sessTitle"></h2>
+      </div>
+      <div id="sessMessages"></div>
+    </section>
+
+    <!-- cards -->
+    <section id="view-cards" class="hidden">
+      <div class="row">
+        <h2 class="grow">Cards</h2>
+        <label style="margin:0"><input type="checkbox" id="unreadOnly" style="width:auto"> Unread only</label>
+      </div>
+      <div id="cardsList"></div>
+    </section>
+  </main>
+</div>
+
+<dialog id="addVisitorDialog">
+  <h2 style="margin-top:0">Add visitor</h2>
+  <label>Name</label>
+  <input id="nvName" placeholder="Alice">
+  <label>Relationship to owner</label>
+  <input id="nvRelationship" placeholder="e.g. friend, colleague, client">
+  <label>Disclosure boundary (optional Markdown)</label>
+  <textarea id="nvDisclosure" rows="4" placeholder="e.g. Do not discuss the owner's work schedule."></textarea>
+  <div class="row" style="margin-top:14px">
+    <button class="ghost" id="nvCancel">Cancel</button>
+    <button class="primary grow" id="nvCreate">Create visitor &amp; credential</button>
+  </div>
+  <div id="nvTokenBox" class="tokenBox hidden"></div>
+  <div class="err" id="nvErr"></div>
+</dialog>
+
+<script>
+"use strict";
+let token = sessionStorage.getItem("silentary_owner") || "";
+const $ = (id) => document.getElementById(id);
+let currentVisitor = null;
+
+async function api(method, path, body) {
+  const res = await fetch(path, {
+    method,
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { "Authorization": "Bearer " + token } : {}),
+    },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    if (res.status === 401) { logout(); }
+    const err = new Error(data.error || ("HTTP " + res.status));
+    err.status = res.status;
+    throw err;
+  }
+  return data;
+}
+
+function fmt(ts) {
+  if (!ts) return "—";
+  return new Date(ts * 1000).toLocaleString();
+}
+
+function esc(s) {
+  const d = document.createElement("div");
+  d.textContent = s == null ? "" : String(s);
+  return d.innerHTML;
+}
+
+// ---------- auth ----------
+async function tryLogin() {
+  const t = $("ownerToken").value.trim();
+  $("loginErr").textContent = "";
+  try {
+    // verify by hitting a cheap endpoint
+    const res = await fetch("/api/owner/visitors", {
+      headers: { "Authorization": "Bearer " + t },
+    });
+    if (!res.ok) throw new Error();
+    token = t;
+    sessionStorage.setItem("silentary_owner", token);
+    enterApp();
+  } catch {
+    $("loginErr").textContent = "Invalid owner token.";
+  }
+}
+
+function logout() {
+  sessionStorage.removeItem("silentary_owner");
+  token = "";
+  $("shell").classList.add("hidden");
+  $("login").classList.remove("hidden");
+}
+
+// ---------- views ----------
+function showView(name) {
+  for (const v of ["visitors", "visitor", "session", "cards"]) {
+    $("view-" + v).classList.toggle("hidden", v !== name);
+  }
+}
+
+async function loadVisitors() {
+  const data = await api("GET", "/api/owner/visitors");
+  const tbody = $("visitorsTable").querySelector("tbody");
+  tbody.innerHTML = "";
+  for (const v of data.visitors) {
+    const tr = document.createElement("tr");
+    tr.className = "clickable";
+    tr.innerHTML = `<td>${esc(v.name)}</td><td>${esc(v.relationship)}</td>
+      <td>${v.session_count}</td><td>${v.unread_cards ? "🔴 " + v.unread_cards : "0"}</td>
+      <td>${fmt(v.created_at)}</td>`;
+    tr.onclick = () => openVisitor(v.id);
+    tbody.appendChild(tr);
+  }
+}
+
+async function openVisitor(id) {
+  const data = await api("GET", "/api/owner/visitors/" + id);
+  currentVisitor = id;
+  $("visitorName").textContent = data.visitor.name;
+  $("vRelationship").value = data.visitor.relationship || "";
+  $("vDisclosure").value = data.visitor.disclosure_boundary || "";
+  $("visitorSaved").textContent = "";
+  $("credTokenBox").classList.add("hidden");
+
+  const cbody = $("credsTable").querySelector("tbody");
+  cbody.innerHTML = "";
+  for (const c of data.credentials) {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td><code>${esc(c.token_prefix)}…</code></td>
+      <td>${fmt(c.created_at)}</td>
+      <td>${c.revoked_at ? '<span class="badge">revoked</span>' : '<span class="badge resolved">active</span>'}</td>
+      <td></td>`;
+    if (!c.revoked_at) {
+      const btn = document.createElement("button");
+      btn.className = "danger"; btn.textContent = "Revoke";
+      btn.onclick = async () => {
+        if (!confirm("Revoke this credential? The visitor will lose access.")) return;
+        await api("POST", "/api/owner/credentials/" + c.id + "/revoke");
+        openVisitor(id);
+      };
+      tr.lastElementChild.appendChild(btn);
+    }
+    cbody.appendChild(tr);
+  }
+
+  const sbody = $("sessionsTable").querySelector("tbody");
+  sbody.innerHTML = "";
+  for (const s of data.sessions) {
+    const tr = document.createElement("tr");
+    tr.className = "clickable";
+    tr.innerHTML = `<td><code>${esc(s.session_key)}</code></td>
+      <td>${esc(s.title || "—")}</td><td>${fmt(s.created_at)}</td><td>${fmt(s.updated_at)}</td>`;
+    tr.onclick = () => openSession(id, s.session_key);
+    sbody.appendChild(tr);
+  }
+
+  loadWorkspace(id);
+  showView("visitor");
+}
+
+async function loadWorkspace(id) {
+  try {
+    const data = await api("GET", "/api/owner/visitors/" + id + "/workspace");
+    const el = $("wsFiles");
+    el.innerHTML = "";
+    if (!data.files.length) { el.textContent = "No workspace files yet."; return; }
+    for (const f of data.files) {
+      const link = document.createElement("button");
+      link.className = "ghost"; link.style.margin = "2px";
+      link.textContent = f.path;
+      link.onclick = async () => {
+        const d = await api("GET", "/api/owner/visitors/" + id + "/workspace/" + encodeURIComponent(f.path));
+        $("wsFileName").value = f.path;
+        $("wsEditor").value = d.content;
+        $("wsSaved").textContent = "";
+      };
+      el.appendChild(link);
+    }
+  } catch (e) {
+    $("wsFiles").textContent = "Failed to list files: " + e.message;
+  }
+}
+
+async function openSession(visitorId, sessionKey) {
+  const data = await api("GET",
+    `/api/owner/visitors/${visitorId}/sessions/${encodeURIComponent(sessionKey)}/messages`);
+  $("sessTitle").textContent = "Session " + sessionKey;
+  const box = $("sessMessages");
+  box.innerHTML = "";
+  if (!data.messages.length) box.innerHTML = '<p class="muted">No messages.</p>';
+  for (const m of data.messages) {
+    const card = document.createElement("div");
+    card.className = "card";
+    card.innerHTML = `<div class="badge">${esc(m.role)}</div>
+      <div style="margin-top:6px; white-space:pre-wrap">${esc(m.content)}</div>`;
+    box.appendChild(card);
+  }
+  showView("session");
+}
+
+async function loadCards() {
+  const unread = $("unreadOnly").checked;
+  const data = await api("GET", "/api/owner/cards" + (unread ? "?unread=1" : ""));
+  const box = $("cardsList");
+  box.innerHTML = "";
+  if (!data.cards.length) { box.innerHTML = '<p class="muted">No cards.</p>'; return; }
+  for (const c of data.cards) {
+    const card = document.createElement("div");
+    card.className = "card";
+    const badge = c.status === "unread" ? "unread" : (c.status === "resolved" ? "resolved" : "");
+    card.innerHTML = `
+      <div class="row">
+        <span class="badge ${badge}">${esc(c.status)}</span>
+        <strong class="grow">${esc(c.summary)}</strong>
+        <span class="muted">${esc(c.visitor_name)} · ${fmt(c.created_at)}</span>
+      </div>
+      ${c.context ? `<pre>${esc(c.context)}</pre>` : ""}
+      <div class="row" style="margin-top:8px">
+        <span class="muted grow">session <code>${esc(c.session_key)}</code></span>
+        ${c.status !== "read" ? `<button class="ghost" data-act="read">Mark read</button>` : ""}
+        ${c.status !== "resolved" ? `<button class="ghost" data-act="resolved">Mark resolved</button>` : ""}
+        ${c.status !== "unread" ? `<button class="ghost" data-act="unread">Mark unread</button>` : ""}
+      </div>`;
+    card.querySelectorAll("button[data-act]").forEach((btn) => {
+      btn.onclick = async () => {
+        await api("POST", "/api/owner/cards/" + c.id + "/status", { status: btn.dataset.act });
+        loadCards();
+      };
+    });
+    box.appendChild(card);
+  }
+}
+
+// ---------- wiring ----------
+$("loginBtn").onclick = tryLogin;
+$("ownerToken").addEventListener("keydown", (e) => { if (e.key === "Enter") tryLogin(); });
+$("logoutBtn").onclick = logout;
+
+document.querySelectorAll("nav button[data-view]").forEach((btn) => {
+  btn.onclick = () => {
+    document.querySelectorAll("nav button[data-view]").forEach((b) => b.classList.remove("active"));
+    btn.classList.add("active");
+    if (btn.dataset.view === "visitors") { showView("visitors"); loadVisitors(); }
+    else { showView("cards"); loadCards(); }
+  };
+});
+
+$("reloadBtn").onclick = loadVisitors;
+$("backBtn").onclick = () => { showView("visitors"); loadVisitors(); };
+$("sessBackBtn").onclick = () => openVisitor(currentVisitor);
+$("unreadOnly").onchange = loadCards;
+
+$("addVisitorBtn").onclick = () => {
+  $("nvName").value = ""; $("nvRelationship").value = ""; $("nvDisclosure").value = "";
+  $("nvErr").textContent = ""; $("nvTokenBox").classList.add("hidden");
+  $("nvCreate").disabled = false;
+  $("addVisitorDialog").showModal();
+};
+$("nvCancel").onclick = () => $("addVisitorDialog").close();
+$("nvCreate").onclick = async () => {
+  $("nvErr").textContent = "";
+  $("nvCreate").disabled = true;
+  try {
+    const data = await api("POST", "/api/owner/visitors", {
+      name: $("nvName").value.trim(),
+      relationship: $("nvRelationship").value.trim(),
+      disclosure_boundary: $("nvDisclosure").value,
+    });
+    const box = $("nvTokenBox");
+    box.innerHTML = `<strong>Credential token (shown once — copy it now):</strong><br>${esc(data.token)}`;
+    box.classList.remove("hidden");
+    loadVisitors();
+  } catch (e) {
+    $("nvErr").textContent = e.message;
+    $("nvCreate").disabled = false;
+  }
+};
+
+$("newCredBtn").onclick = async () => {
+  if (!confirm("Issue a new credential for this visitor?")) return;
+  const data = await api("POST", "/api/owner/visitors/" + currentVisitor + "/credentials");
+  const box = $("credTokenBox");
+  box.innerHTML = `<strong>New credential token (shown once — copy it now):</strong><br>${esc(data.token)}`;
+  box.classList.remove("hidden");
+  openVisitor(currentVisitor);
+};
+
+$("deleteVisitorBtn").onclick = async () => {
+  if (!confirm("Delete this visitor, their credentials, sessions, cards and workspace? This cannot be undone.")) return;
+  await api("DELETE", "/api/owner/visitors/" + currentVisitor);
+  showView("visitors");
+  loadVisitors();
+};
+
+$("saveVisitorBtn").onclick = async () => {
+  await api("PUT", "/api/owner/visitors/" + currentVisitor, {
+    relationship: $("vRelationship").value,
+    disclosure_boundary: $("vDisclosure").value,
+  });
+  $("visitorSaved").textContent = "Saved ✓";
+  setTimeout(() => { $("visitorSaved").textContent = ""; }, 2000);
+};
+
+$("wsNewFileBtn").onclick = () => { $("wsEditor").value = ""; $("wsEditor").focus(); };
+$("wsSaveBtn").onclick = async () => {
+  const name = $("wsFileName").value.trim();
+  if (!name) { $("wsSaved").textContent = "Enter a file name first."; return; }
+  await api("PUT",
+    "/api/owner/visitors/" + currentVisitor + "/workspace/" + encodeURIComponent(name),
+    { content: $("wsEditor").value });
+  $("wsSaved").textContent = "Saved ✓";
+  setTimeout(() => { $("wsSaved").textContent = ""; }, 2000);
+  loadWorkspace(currentVisitor);
+};
+
+if (token) { enterAppInit(); } else { $("login").classList.remove("hidden"); }
+
+function enterAppInit() {
+  $("login").classList.add("hidden");
+  $("shell").classList.remove("hidden");
+  loadVisitors();
+}
+</script>
+</body>
+</html>

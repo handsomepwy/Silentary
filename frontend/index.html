@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Silentary</title>
+<style>
+  :root {
+    --bg: #0f1115; --panel: #171a21; --panel2: #1d212b; --text: #e6e9ef;
+    --muted: #8b93a7; --accent: #6c8cff; --border: #2a2f3d; --user: #2b3a67;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    background: var(--bg); color: var(--text); height: 100vh; display: flex;
+    flex-direction: column;
+  }
+  .hidden { display: none !important; }
+  /* login */
+  #login {
+    margin: auto; width: min(380px, 90vw); background: var(--panel);
+    border: 1px solid var(--border); border-radius: 12px; padding: 28px;
+  }
+  #login h1 { font-size: 20px; margin: 0 0 6px; }
+  #login p { color: var(--muted); font-size: 13px; margin: 0 0 18px; }
+  input, textarea, button, select {
+    font: inherit; color: var(--text); background: var(--panel2);
+    border: 1px solid var(--border); border-radius: 8px;
+  }
+  input { width: 100%; padding: 10px 12px; }
+  button { padding: 10px 16px; cursor: pointer; border: none; }
+  button.primary { background: var(--accent); color: #fff; width: 100%; margin-top: 12px; }
+  button.primary:disabled { opacity: .5; cursor: default; }
+  .err { color: #ff7a7a; font-size: 13px; margin-top: 10px; min-height: 18px; }
+  /* topbar */
+  header {
+    display: flex; align-items: center; gap: 12px; padding: 10px 16px;
+    border-bottom: 1px solid var(--border); background: var(--panel);
+  }
+  header .title { font-weight: 600; }
+  header .who { color: var(--muted); font-size: 13px; }
+  header .spacer { flex: 1; }
+  header button { padding: 6px 12px; font-size: 13px; background: var(--panel2); }
+  /* sessions sidebar */
+  #shell { display: flex; flex: 1; min-height: 0; }
+  #sidebar {
+    width: 240px; border-right: 1px solid var(--border); background: var(--panel);
+    display: flex; flex-direction: column; padding: 8px;
+  }
+  #sidebar .newbtn { margin-bottom: 8px; }
+  #sessionList { overflow-y: auto; flex: 1; }
+  .sessionItem {
+    padding: 9px 10px; border-radius: 8px; cursor: pointer; font-size: 13px;
+    color: var(--muted); margin-bottom: 2px; word-break: break-all;
+    display: flex; justify-content: space-between; align-items: center; gap: 6px;
+  }
+  .sessionItem:hover { background: var(--panel2); }
+  .sessionItem.active { background: var(--panel2); color: var(--text); }
+  .sessionItem .del { color: var(--muted); border: none; background: none; padding: 2px 6px; }
+  .sessionItem .del:hover { color: #ff7a7a; }
+  /* chat */
+  #chat { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  #messages { flex: 1; overflow-y: auto; padding: 20px; }
+  .msg { max-width: 760px; margin: 0 auto 14px; display: flex; flex-direction: column; }
+  .msg .bubble {
+    padding: 10px 14px; border-radius: 12px; line-height: 1.55; font-size: 14px;
+    white-space: pre-wrap; word-wrap: break-word;
+  }
+  .msg.user { align-items: flex-end; }
+  .msg.user .bubble { background: var(--user); }
+  .msg.assistant .bubble { background: var(--panel); border: 1px solid var(--border); }
+  .msg .meta { font-size: 11px; color: var(--muted); margin: 4px 6px; }
+  #composer {
+    display: flex; gap: 10px; padding: 14px 20px; border-top: 1px solid var(--border);
+    background: var(--panel); align-items: flex-end;
+  }
+  #composer textarea {
+    flex: 1; resize: none; padding: 10px 12px; min-height: 44px; max-height: 160px;
+    border-radius: 10px;
+  }
+  #sendBtn { background: var(--accent); color: #fff; padding: 10px 18px; }
+  #sendBtn:disabled { opacity: .5; cursor: default; }
+  .thinking { color: var(--muted); font-style: italic; }
+  @media (max-width: 700px) {
+    #sidebar { position: absolute; z-index: 5; height: 100%; transform: translateX(-100%); transition: transform .2s; }
+    #sidebar.open { transform: none; }
+    #menuBtn { display: block !important; }
+  }
+  #menuBtn { display: none; }
+</style>
+</head>
+<body>
+
+<!-- login -->
+<div id="login">
+  <h1>Silentary</h1>
+  <p>Enter the access token you received to continue.</p>
+  <input id="tokenInput" type="password" placeholder="Access token" autocomplete="off">
+  <button class="primary" id="loginBtn">Continue</button>
+  <div class="err" id="loginErr"></div>
+</div>
+
+<!-- app -->
+<div id="app" class="hidden" style="height:100vh; display:flex; flex-direction:column;">
+  <header>
+    <button id="menuBtn">☰</button>
+    <div class="title">Silentary</div>
+    <div class="who" id="who"></div>
+    <div class="spacer"></div>
+    <button id="logoutBtn">Log out</button>
+  </header>
+  <div id="shell">
+    <div id="sidebar">
+      <button class="primary newbtn" id="newSessionBtn">+ New conversation</button>
+      <div id="sessionList"></div>
+    </div>
+    <div id="chat">
+      <div id="messages"></div>
+      <div id="composer">
+        <textarea id="input" placeholder="Type a message…" rows="1"></textarea>
+        <button id="sendBtn">Send</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+"use strict";
+const API = "";
+let token = sessionStorage.getItem("silentary_token") || "";
+let visitorName = sessionStorage.getItem("silentary_name") || "";
+let currentSession = null;
+let sessions = [];
+let busy = false;
+
+const $ = (id) => document.getElementById(id);
+
+function show(el, on) { el.classList.toggle("hidden", !on); }
+
+async function api(method, path, body) {
+  const res = await fetch(API + path, {
+    method,
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { "Authorization": "Bearer " + token } : {}),
+    },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    if (res.status === 401) { logout(false); }
+    const err = new Error(data.error || ("HTTP " + res.status));
+    err.status = res.status;
+    throw err;
+  }
+  return data;
+}
+
+// ---------- login ----------
+async function tryLogin() {
+  const t = $("tokenInput").value.trim();
+  if (!t) return;
+  $("loginErr").textContent = "";
+  $("loginBtn").disabled = true;
+  try {
+    const data = await api("POST", "/api/visitor/login", { token: t });
+    token = t;
+    visitorName = data.visitor_name;
+    sessionStorage.setItem("silentary_token", token);
+    sessionStorage.setItem("silentary_name", visitorName);
+    enterApp();
+  } catch (e) {
+    $("loginErr").textContent = e.status === 429 ? "Too many attempts — please wait a moment." : "Invalid token.";
+  } finally {
+    $("loginBtn").disabled = false;
+  }
+}
+
+function logout(clearStorage = true) {
+  if (clearStorage) { sessionStorage.removeItem("silentary_token"); sessionStorage.removeItem("silentary_name"); }
+  token = ""; visitorName = ""; currentSession = null; sessions = [];
+  show($("app"), false); show($("login"), true);
+  $("tokenInput").value = "";
+}
+
+// ---------- sessions ----------
+async function loadSessions() {
+  const data = await api("GET", "/api/visitor/sessions");
+  sessions = data.sessions;
+  renderSessions();
+}
+
+function renderSessions() {
+  const list = $("sessionList");
+  list.innerHTML = "";
+  for (const s of sessions) {
+    const item = document.createElement("div");
+    item.className = "sessionItem" + (currentSession === s.session_key ? " active" : "");
+    const label = document.createElement("span");
+    const d = new Date(s.updated_at * 1000);
+    label.textContent = s.title || ("Conversation " + d.toLocaleDateString());
+    const del = document.createElement("button");
+    del.className = "del"; del.textContent = "✕"; del.title = "Delete conversation";
+    del.onclick = async (ev) => {
+      ev.stopPropagation();
+      if (!confirm("Delete this conversation?")) return;
+      await api("DELETE", "/api/visitor/sessions/" + s.session_key);
+      if (currentSession === s.session_key) { currentSession = null; $("messages").innerHTML = ""; }
+      loadSessions();
+    };
+    item.append(label, del);
+    item.onclick = () => openSession(s.session_key);
+    list.appendChild(item);
+  }
+}
+
+async function newSession() {
+  const data = await api("POST", "/api/visitor/sessions");
+  currentSession = data.session_key;
+  $("messages").innerHTML = "";
+  await loadSessions();
+}
+
+async function openSession(key) {
+  currentSession = key;
+  renderSessions();
+  const msgEl = $("messages");
+  msgEl.innerHTML = "";
+  try {
+    const data = await api("GET", "/api/visitor/sessions/" + key + "/messages");
+    for (const m of data.messages) addMessage(m.role, m.content);
+    if (!data.messages.length) addPlaceholder("This is the start of your conversation with the assistant.");
+  } catch (e) {
+    addPlaceholder("Could not load this conversation (" + e.message + ").");
+  }
+  if (window.innerWidth <= 700) $("sidebar").classList.remove("open");
+  msgEl.scrollTop = msgEl.scrollHeight;
+}
+
+// ---------- chat ----------
+function addMessage(role, content) {
+  const wrap = document.createElement("div");
+  wrap.className = "msg " + role;
+  const bubble = document.createElement("div");
+  bubble.className = "bubble";
+  bubble.textContent = content;
+  wrap.appendChild(bubble);
+  $("messages").appendChild(wrap);
+  $("messages").scrollTop = $("messages").scrollHeight;
+  return wrap;
+}
+
+function addPlaceholder(text) {
+  const wrap = document.createElement("div");
+  wrap.className = "msg assistant";
+  const bubble = document.createElement("div");
+  bubble.className = "bubble thinking";
+  bubble.textContent = text;
+  wrap.appendChild(bubble);
+  $("messages").appendChild(wrap);
+}
+
+async function sendMessage() {
+  if (busy) return;
+  const input = $("input");
+  const text = input.value.trim();
+  if (!text) return;
+  if (!currentSession) { await newSession(); }
+  busy = true; $("sendBtn").disabled = true;
+  input.value = ""; input.style.height = "auto";
+  addMessage("user", text);
+  const thinking = addPlaceholder("…");
+  try {
+    const data = await api("POST", "/api/visitor/chat",
+      { session_key: currentSession, message: text });
+    thinking.remove();
+    addMessage("assistant", data.reply);
+  } catch (e) {
+    thinking.remove();
+    addPlaceholder(e.status === 503 ? "The assistant is unavailable right now. Please try again later."
+      : e.status === 429 ? "You're sending messages too quickly. Please slow down."
+      : ("Error: " + e.message));
+  } finally {
+    busy = false; $("sendBtn").disabled = false;
+    input.focus();
+    loadSessions();
+  }
+}
+
+// ---------- wiring ----------
+function enterApp() {
+  show($("login"), false); show($("app"), true);
+  $("who").textContent = visitorName ? ("Signed in as " + visitorName) : "";
+  loadSessions();
+}
+
+$("loginBtn").onclick = tryLogin;
+$("tokenInput").addEventListener("keydown", (e) => { if (e.key === "Enter") tryLogin(); });
+$("logoutBtn").onclick = () => logout();
+$("newSessionBtn").onclick = newSession;
+$("sendBtn").onclick = sendMessage;
+$("input").addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+});
+$("input").addEventListener("input", (e) => {
+  e.target.style.height = "auto";
+  e.target.style.height = Math.min(e.target.scrollHeight, 160) + "px";
+});
+$("menuBtn").onclick = () => $("sidebar").classList.toggle("open");
+
+if (token) enterApp();
+</script>
+</body>
+</html>

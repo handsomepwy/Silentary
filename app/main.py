@@ -251,9 +251,11 @@ def _register_visitor_routes(app: FastAPI) -> None:
                                           auth.visitor_id, session_key)
         if session is None:
             return _json_error(404, "session not found")
+        if state.agent is None:
+            return _json_error(503, "agent unavailable")
         try:
             messages = await state.agent.history(auth.visitor_id, session_key)
-        except (AgentError, AttributeError):
+        except AgentError:
             return _json_error(503, "agent unavailable")
         return {"session_key": session_key, "messages": messages}
 
@@ -278,6 +280,8 @@ def _register_visitor_routes(app: FastAPI) -> None:
                                           auth.visitor_id, session_key)
         if session is None:
             return _json_error(404, "session not found")
+        if state.agent is None:
+            return _json_error(503, "agent unavailable")
         try:
             result = await state.agent.chat(auth.visitor_id, session_key, message)
         except AgentError as exc:
@@ -300,10 +304,11 @@ def _register_visitor_routes(app: FastAPI) -> None:
             return _json_error(404, "session not found")
         await asyncio.to_thread(state.database.delete_session,
                                 auth.visitor_id, session_key)
-        try:
-            await state.agent.delete_session(auth.visitor_id, session_key)
-        except (AgentError, AttributeError):
-            pass  # DB row gone already; nanobot cleanup best-effort
+        if state.agent is not None:
+            try:
+                await state.agent.delete_session(auth.visitor_id, session_key)
+            except AgentError:
+                pass  # DB row gone already; nanobot cleanup best-effort
         return {"ok": True}
 
 
@@ -499,6 +504,11 @@ def _register_frontend(app: FastAPI) -> None:
     @app.get("/api/health")
     async def health():
         return {"ok": True}
+
+    @app.get("/admin")
+    async def admin_page(request: Request):
+        state = _get_state(request)
+        return FileResponse(state.settings.frontend_dir / "admin.html")
 
     @app.get("/{full_path:path}")
     async def spa(request: Request, full_path: str):
