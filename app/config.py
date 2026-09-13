@@ -38,6 +38,10 @@ class Settings:
     model: str = "anthropic/claude-opus-4-5"
     # Provider name is the part before "/" in `model` unless overridden.
     provider_name: str = ""
+    # Optional custom endpoint for OpenAI-compatible gateways/proxies
+    # (OpenRouter, AiHubMix, vLLM, Ollama, corporate proxies...). Empty =
+    # provider's default endpoint.
+    llm_base_url: str = ""
 
     # --- agent ---
     agent_max_context_chars: int = 4000  # bound for injected workspace context
@@ -150,6 +154,7 @@ def load_settings() -> Settings:
     s.provider_api_key = _dotenv_value("SILENTARY_PROVIDER_API_KEY", file_cfg, "provider_api_key")
     s.model = _dotenv_value("SILENTARY_MODEL", file_cfg, "model") or s.model
     s.provider_name = _dotenv_value("SILENTARY_PROVIDER", file_cfg, "provider")
+    s.llm_base_url = _dotenv_value("SILENTARY_LLM_BASE_URL", file_cfg, "llm_base_url")
     s.agent_max_context_chars = int(file_cfg.get("agent_max_context_chars", s.agent_max_context_chars))
     s.rag_top_k = int(file_cfg.get("rag_top_k", s.rag_top_k))
     s.trust_proxy_headers = _dotenv_value(

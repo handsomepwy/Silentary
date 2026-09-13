@@ -114,9 +114,14 @@ class NanobotAgentService:
             "my": {"enable": False},
             "image_generation": {"enabled": False},
         }
+        provider_block: dict = {"apiKey": self.settings.provider_api_key}
+        if self.settings.llm_base_url:
+            # nanobot accepts both api_base/apiBase (camelCase alias generator);
+            # apiBase matches the casing used in nanobot docs/examples.
+            provider_block["apiBase"] = self.settings.llm_base_url
         config = {
             "providers": {
-                self.settings.provider: {"apiKey": self.settings.provider_api_key},
+                self.settings.provider: provider_block,
             },
             "agents": {
                 "defaults": {

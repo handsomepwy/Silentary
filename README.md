@@ -59,6 +59,7 @@ See `deployment/.env.example` for the systemd template.
 | `SILENTARY_PROVIDER_API_KEY` | LLM API key (required for the agent) |
 | `SILENTARY_MODEL` | Model in `provider/model` format |
 | `SILENTARY_PROVIDER` | Override provider name (defaults to model prefix) |
+| `SILENTARY_LLM_BASE_URL` | Custom LLM endpoint (OpenAI-compatible gateways/proxies, vLLM, Ollama); empty = provider default. Use `SILENTARY_PROVIDER=custom` + any model name for generic gateways |
 | `SILENTARY_HOST` / `SILENTARY_PORT` | Bind address (default 127.0.0.1:8000) |
 | `SILENTARY_DATA_DIR` | SQLite db + nanobot sessions (default `data/`) |
 | `SILENTARY_WORKSPACES_DIR` | Per-visitor Markdown (default `workspaces/`) |
