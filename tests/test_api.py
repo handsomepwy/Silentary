@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import pytest
 
+from app.main import create_app
+from tests.conftest import StubAgentService
+
 pytestmark = pytest.mark.asyncio
 
 
@@ -206,3 +209,107 @@ async def test_delete_visitor_removes_transcripts(client):
     # the adapter's delete_all_sessions must have been invoked for this visitor
     assert vid in h.agent.deleted_all
     assert h.agent.history_store.get((vid, sk)) is None
+
+
+# ----------------------------------------------------------------------
+# restart persistence (spec §23: conversations survive restart)
+# ----------------------------------------------------------------------
+
+def _bootstrap_state(app):
+    """Sync AppState bootstrap mirroring conftest.app_env (no lifespan)."""
+    from app import db as dbm
+    from app.config import load_settings as ls
+    from app.main import AppState
+    from app.rag import RagService
+    from app.rate_limit import TokenBucketLimiter, setup_default_rules
+    from app.workspaces import WorkspaceManager
+
+    settings = ls()
+    settings.ensure_dirs()
+    state = AppState()
+    app.state.silentary = state
+    state.settings = settings
+    state.database = dbm.Database(settings.db_path)
+    state.workspaces = WorkspaceManager(settings.workspaces_dir)
+    state.rag = RagService(settings, state.workspaces)
+    state.limiter = TokenBucketLimiter()
+    setup_default_rules(state.limiter)
+    state.agent = None
+
+
+async def test_state_survives_restart(tmp_path, monkeypatch):
+    """Boot the app twice over the same data dirs (simulated process restart).
+
+    Everything the spec marks as persistent must carry over: credentials,
+    visitor record, session list, workspace files, and cards. Conversation
+    content itself is owned by nanobot (JSONL on disk); the stub-agent
+    history store carried across boots stands in for those transcripts.
+    """
+    from httpx import ASGITransport, AsyncClient
+
+    monkeypatch.setenv("SILENTARY_CONFIG", str(tmp_path / "config.json"))
+    monkeypatch.setenv("SILENTARY_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("SILENTARY_WORKSPACES_DIR", str(tmp_path / "workspaces"))
+    monkeypatch.setenv("SILENTARY_OWNER_TOKEN", "test-owner-token")
+    monkeypatch.setenv("SILENTARY_PROVIDER_API_KEY", "")
+
+    # --- first boot: create data ---
+    app1 = create_app()
+    _bootstrap_state(app1)
+    agent1 = StubAgentService()
+    app1.state.silentary.agent = agent1
+
+    async with AsyncClient(transport=ASGITransport(app=app1),
+                           base_url="http://test") as c1:
+        oah = {"Authorization": "Bearer test-owner-token"}
+        res = await c1.post("/api/owner/visitors", headers=oah,
+                            json={"name": "Phoenix", "disclosure_boundary": "No flight talk."})
+        data = res.json()
+        vid, token = data["visitor"]["id"], data["token"]
+
+        auth = {"Authorization": f"Bearer {token}"}
+        sk = (await c1.post("/api/visitor/sessions", headers=auth)).json()["session_key"]
+        await c1.post("/api/visitor/chat", headers=auth,
+                      json={"session_key": sk, "message": "hello before restart"})
+        await c1.put(f"/api/owner/visitors/{vid}/workspace/notes.md", headers=oah,
+                     json={"content": "# Notes\n\nSurvives restarts."})
+        app1.state.silentary.database.create_card(vid, sk, "Card before restart", None)
+
+    # --- "shutdown": DB commits per statement; nothing else to flush ---
+
+    # --- second boot over the SAME dirs ---
+    app2 = create_app()
+    _bootstrap_state(app2)
+    agent2 = StubAgentService()
+    # carry over the transcript store — stands in for nanobot-owned JSONL
+    agent2.history_store = agent1.history_store
+    app2.state.silentary.agent = agent2
+
+    async with AsyncClient(transport=ASGITransport(app=app2),
+                           base_url="http://test") as c2:
+        oah = {"Authorization": "Bearer test-owner-token"}
+
+        # credential still authenticates
+        res = await c2.post("/api/visitor/login", json={"token": token})
+        assert res.status_code == 200
+
+        # session list survives
+        res = await c2.get("/api/visitor/sessions", headers=auth)
+        assert res.status_code == 200
+        assert sk in [s["session_key"] for s in res.json()["sessions"]]
+
+        # transcript survives
+        res = await c2.get(f"/api/visitor/sessions/{sk}/messages", headers=auth)
+        assert res.status_code == 200
+        msgs = res.json()["messages"]
+        assert msgs[0]["content"] == "hello before restart"
+        assert msgs[-1]["role"] == "assistant"
+
+        # workspace file survives
+        res = await c2.get(f"/api/owner/visitors/{vid}/workspace/notes.md", headers=oah)
+        assert res.status_code == 200
+        assert "Survives restarts." in res.json()["content"]
+
+        # card survives
+        res = await c2.get("/api/owner/cards", headers=oah)
+        assert any(c["summary"] == "Card before restart" for c in res.json()["cards"])

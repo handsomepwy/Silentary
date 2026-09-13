@@ -187,3 +187,44 @@ async def test_rag_isolation_between_visitors(client):
     with patch.object(at, "current_request_context", return_value=ctx_a):
         out = await tool.execute(query="vault code")
         assert "4471" in out
+
+
+async def test_oversized_body_rejected_413(client):
+    """M5: bodies over the hard cap get a clean 413, never buffered (L6-adjacent)."""
+    c, h = client
+    # content-length pre-check path
+    res = await c.post("/api/visitor/login", json={"token": "x" * 700_000})
+    assert res.status_code == 413
+    assert "too large" in res.json()["error"]
+
+    # streamed backstop path: header lies / absent — send raw chunked-ish body
+    import json as _json
+    res = await c.post(
+        "/api/visitor/login",
+        content=_json.dumps({"token": "y" * 700_000}).encode(),
+        headers={"Authorization": "", "Transfer-Encoding": "chunked"},
+    )
+    assert res.status_code in (413, 400)
+
+
+async def test_malformed_json_gets_clean_400(client):
+    """L6: malformed JSON must produce 400, not 500/422."""
+    c, h = client
+    res = await c.post("/api/visitor/login", content=b"{not json",
+                       headers={"Content-Type": "application/json"})
+    assert res.status_code == 400
+    assert "invalid request body" in res.json()["error"]
+
+    # non-object JSON also rejected
+    res = await c.post("/api/visitor/login", content=b"[1,2,3]",
+                       headers={"Content-Type": "application/json"})
+    assert res.status_code == 400
+
+
+async def test_owner_routes_also_capped(client):
+    """Body cap + malformed-JSON handling applies to owner routes too."""
+    c, h = client
+    auth = h.owner_headers
+    res = await c.post("/api/owner/visitors", headers=auth, content=b"{oops",
+                       )
+    assert res.status_code == 400

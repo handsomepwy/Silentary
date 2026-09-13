@@ -9,6 +9,7 @@ send a visitor id or workspace id (fail-closed, spec §5).
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import re
 import secrets
@@ -35,6 +36,10 @@ from .workspaces import WorkspaceError, WorkspaceManager, slugify_name
 logger = logging.getLogger("silentary.app")
 
 _SESSION_KEY_RE = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
+
+# Hard cap on JSON request bodies (M5). Largest legitimate payload is the
+# workspace file write (500k chars); chat messages are <=8000.
+_MAX_BODY_BYTES = 600_000
 
 
 # ----------------------------------------------------------------------
@@ -75,6 +80,41 @@ def _client_ip(request: Request) -> str:
 
 def _json_error(status: int, message: str) -> JSONResponse:
     return JSONResponse(status_code=status, content={"error": message})
+
+
+async def _read_json_body(request: Request) -> tuple[dict | None, JSONResponse | None]:
+    """Read and parse a JSON request body with a hard size cap (M5).
+
+    Returns (body, None) on success or (None, response) with a clean client
+    error. Guards against unbounded memory growth (M5) and returns a clean
+    400 for malformed JSON instead of an unhandled 500 (L6).
+    """
+    # Content-Length pre-check: reject before buffering anything.
+    cl = request.headers.get("content-length")
+    if cl is not None:
+        try:
+            if int(cl) > _MAX_BODY_BYTES:
+                return None, _json_error(413, "request body too large")
+        except ValueError:
+            return None, _json_error(400, "invalid request body")
+    # Streamed read backstop (no/trick Content-Length: chunked, mismatched).
+    chunks: list[bytes] = []
+    total = 0
+    while True:
+        chunk = await request.stream().__anext__()
+        if not chunk:
+            break
+        total += len(chunk)
+        if total > _MAX_BODY_BYTES:
+            return None, _json_error(413, "request body too large")
+        chunks.append(chunk)
+    try:
+        body = json.loads(b"".join(chunks).decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return None, _json_error(400, "invalid request body")
+    if not isinstance(body, dict):
+        return None, _json_error(400, "invalid request body")
+    return body, None
 
 
 # ----------------------------------------------------------------------
@@ -207,7 +247,9 @@ def _register_visitor_routes(app: FastAPI) -> None:
     async def visitor_login(request: Request):
         state = _get_state(request)
         ip = _client_ip(request)
-        body = await request.json()
+        body, err = await _read_json_body(request)
+        if err:
+            return err
         token = (body.get("token") or "").strip()
         if not state.limiter.check("login_ip", ip):
             return _json_error(429, "too many attempts, slow down")
@@ -276,7 +318,9 @@ def _register_visitor_routes(app: FastAPI) -> None:
         if not state.limiter.check("chat_ip", ip):
             return _json_error(429, "too many messages, slow down")
         auth = _require_visitor(request)
-        body = await request.json()
+        body, err = await _read_json_body(request)
+        if err:
+            return err
         message = (body.get("message") or "").strip()
         session_key = (body.get("session_key") or "").strip()
         if not message or len(message) > 8000:
@@ -347,7 +391,9 @@ def _register_owner_routes(app: FastAPI) -> None:
     async def owner_create_visitor(request: Request):
         _require_owner(request)
         state = _get_state(request)
-        body = await request.json()
+        body, err = await _read_json_body(request)
+        if err:
+            return err
         name = (body.get("name") or "").strip()
         relationship = (body.get("relationship") or "").strip()
         disclosure = (body.get("disclosure_boundary") or "").strip()
@@ -381,7 +427,9 @@ def _register_owner_routes(app: FastAPI) -> None:
     async def owner_update_visitor(request: Request, visitor_id: str):
         _require_owner(request)
         state = _get_state(request)
-        body = await request.json()
+        body, err = await _read_json_body(request)
+        if err:
+            return err
         visitor = await asyncio.to_thread(
             state.database.update_visitor, visitor_id,
             name=body.get("name"),
@@ -467,7 +515,9 @@ def _register_owner_routes(app: FastAPI) -> None:
     async def owner_card_status(request: Request, card_id: str):
         _require_owner(request)
         state = _get_state(request)
-        body = await request.json()
+        body, err = await _read_json_body(request)
+        if err:
+            return err
         status = (body.get("status") or "").strip()
         try:
             card = await asyncio.to_thread(state.database.update_card_status,
@@ -508,7 +558,9 @@ def _register_owner_routes(app: FastAPI) -> None:
         visitor = await asyncio.to_thread(state.database.get_visitor, visitor_id)
         if visitor is None:
             return _json_error(404, "visitor not found")
-        body = await request.json()
+        body, err = await _read_json_body(request)
+        if err:
+            return err
         content = body.get("content")
         if not isinstance(content, str) or len(content) > 500_000:
             return _json_error(400, "content must be a string up to 500k chars")

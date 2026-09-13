@@ -120,9 +120,14 @@ or stop the service briefly.
 .venv/Scripts/python -m pytest tests/ -q
 ```
 
-23 tests cover auth (visitor + owner), session ownership, workspace path-escape,
-RAG cross-visitor isolation, card persistence, rate limiting, and the
-agent-unavailable degradation path.
+27 tests cover auth (visitor + owner), session ownership, workspace path-escape,
+RAG cross-visitor isolation, card persistence, rate limiting, request-body
+hardening, and the agent-unavailable degradation path. A restart-persistence
+test re-boots the app over the same data dirs and verifies credentials,
+sessions, transcripts, workspace files, and cards survive.
+
+Every spec §23 acceptance criterion is mapped to implementation + evidence in
+[docs/ACCEPTANCE.md](docs/ACCEPTANCE.md).
 
 ## Architecture notes (see docs/PLAN.md for details)
 
@@ -131,8 +136,9 @@ agent-unavailable degradation path.
   escape its visitor. Per-turn visitor context (profile/disclosure) is injected
   via nanobot's runtime-context provider; custom tools (`submit_card`,
   `rag_search`) resolve the visitor from the server-controlled session key.
-- **nanobot built-in tools** (shell/file/web/etc.) are disabled via config; the
-  agent can only use the two Silentary tools.
+- **nanobot built-in tools** (shell/file/web/etc.) are unregistered at startup —
+  config `enable:false` flags alone leave some builtins reachable, so the adapter
+  unregisters everything then registers only `submit_card`/`rag_search`.
 - **Rate limiting** is an in-process token bucket (login/chat/messages); Nginx
   adds coarse IP limits on top.
 - **Microrag** is installed with `--ignore-requires-python` on 3.11 (metadata
