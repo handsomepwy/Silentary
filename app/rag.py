@@ -82,7 +82,7 @@ class RagIndex:
                 continue
             if resolved.is_file():
                 try:
-                    docs.append((rel.as_posix(), resolved.read_text(encoding="utf-8")))
+                    docs.append((rel.as_posix(), resolved.read_text(encoding="utf-8-sig")))
                 except (OSError, UnicodeDecodeError):
                     continue
         return docs

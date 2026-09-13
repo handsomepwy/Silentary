@@ -6,3 +6,4 @@ workspaces/
 .pytest_cache/
 *.log
 refs/
+.env

@@ -72,7 +72,7 @@ class WorkspaceManager:
         path = self._resolve_within(base, rel_path)
         if not path.is_file():
             raise FileNotFoundError(rel_path)
-        return path.read_text(encoding="utf-8")
+        return path.read_text(encoding="utf-8-sig")
 
     def write_file(self, visitor_id: str, rel_path: str, content: str) -> None:
         base = self.visitor_dir(visitor_id)
@@ -96,7 +96,7 @@ class WorkspaceManager:
                 continue
             if resolved.is_file():
                 try:
-                    docs.append((rel.as_posix(), resolved.read_text(encoding="utf-8")))
+                    docs.append((rel.as_posix(), resolved.read_text(encoding="utf-8-sig")))
                 except (OSError, UnicodeDecodeError):
                     continue
         return docs

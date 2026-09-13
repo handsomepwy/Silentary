@@ -48,9 +48,10 @@ set SILENTARY_MODEL=anthropic/claude-opus-4-5
 
 ## Configuration
 
-All settings come from environment variables or a JSON config file
-(`SILENTARY_CONFIG`, default `data/config.json`). See
-`deployment/.env.example`.
+Settings resolve in order: **environment variable → `.env` (project root) →
+`data/config.json` → defaults**. Copy `.env.example` to `.env` and fill it in —
+`.env` is gitignored and the loader tolerates a UTF-8 BOM (Notepad/PowerShell).
+See `deployment/.env.example` for the systemd template.
 
 | Variable | Purpose |
 |---|---|
