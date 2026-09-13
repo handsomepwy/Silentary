@@ -34,12 +34,12 @@ async def test_rate_limiter_unit():
     assert limiter.check("r", "a") is True
 
 
-def test_rate_limiter_fail_closed_on_unknown_rule():
+async def test_rate_limiter_fail_closed_on_unknown_rule():
     limiter = TokenBucketLimiter()
     assert limiter.check("never_registered", "x") is False
 
 
-def test_rate_limiter_eviction():
+async def test_rate_limiter_eviction():
     limiter = TokenBucketLimiter(max_buckets=10)
     limiter.add_rule("r", capacity=1000, refill_per_second=1000)
     for i in range(50):

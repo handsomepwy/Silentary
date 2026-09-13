@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import threading
 import time
 from pathlib import Path
@@ -91,9 +92,14 @@ class RagIndex:
         with self._lock:
             fp = self._fingerprint_of()
             if self._rag is None or fp != self._fingerprint:
-                self._build_locked()
+                try:
+                    self._build_locked()
+                except Exception:
+                    logger.exception("microrag build failed; using lexical fallback")
+                    self._rag = None
+                    self._fingerprint = fp
             if self._rag is None:
-                return []
+                return self._fallback_search(query, top_k=top_k)
             # Import locally so unit tests can stub microrag if needed.
             from microrag import MicroRAG  # noqa: F401
 
@@ -101,13 +107,36 @@ class RagIndex:
             try:
                 results = self._rag.search(query, top_k=k)
             except Exception:
-                logger.exception("rag search failed")
-                return []
+                logger.exception("microrag search failed; using lexical fallback")
+                return self._fallback_search(query, top_k=top_k)
             return [
                 {"source": "workspace", "score": float(r.score),
                  "content": r.content[:1200]}
                 for r in results
             ]
+
+    def _fallback_search(self, query: str, top_k: int | None = None) -> list[dict]:
+        """Small fail-safe Markdown search when MicroRAG/deps are unavailable.
+
+        This is deliberately workspace-local and read-only. It is not a replacement
+        for MicroRAG in production, but it preserves useful retrieval and isolation
+        during dependency failures or lightweight development setups.
+        """
+        terms = _search_terms(query)
+        if not terms:
+            return []
+        matches = []
+        for rel_path, content in self._workspace_docs():
+            haystack = content.lower()
+            score = sum(1 for term in terms if term in haystack)
+            if score:
+                matches.append({
+                    "source": f"workspace:{rel_path}",
+                    "score": float(score),
+                    "content": content[:1200],
+                })
+        matches.sort(key=lambda item: item["score"], reverse=True)
+        return matches[:top_k or self.settings.rag_top_k]
 
     def close(self) -> None:
         with self._lock:
@@ -117,6 +146,18 @@ class RagIndex:
                 except Exception:
                     pass
                 self._rag = None
+
+
+def _search_terms(query: str) -> set[str]:
+    stopwords = {
+        "a", "an", "and", "are", "does", "for", "have", "has", "is", "of",
+        "or", "the", "to", "what", "when", "where", "who", "with",
+    }
+    return {
+        token
+        for token in re.findall(r"[A-Za-z0-9_]{3,}", (query or "").lower())
+        if token not in stopwords
+    }
 
 
 class RagService:

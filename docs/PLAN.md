@@ -11,8 +11,8 @@
 | nanobot-ai 0.3.0 requires Python ≥ 3.11 | venv uses 3.11.9 |
 | MicroRAG 0.2.2 on PyPI metadata pins `>=3.12`, but the wheel compiles & runs on 3.11 | installed with `pip install --ignore-requires-python --no-deps microrag` + 3.11-compatible deps pinned separately (`numpy<2.3`, `duckdb`, `pyarrow`, `rank-bm25`, `fastembed`, `onnxruntime`). Verified working at runtime (cosine 0.67 related vs 0.09 unrelated). |
 | nanobot sessions: JSONL files under `<config_dir>/sessions/`, b64-encoded session keys, atomic writes + filelocks | survive restarts out of the box; we let nanobot own session *content* |
-| nanobot `bot.run(message, session_key=..., attributes={...})` | arbitrary external session keys accepted (`f"visitor:{visitor_id}:{session_key}"`) |
-| `RequestContext.attributes` is available inside tool `execute()` | per-request visitor binding for `submit_card`/`rag_search` — server-injected, never client-controlled |
+| nanobot `bot.run(message, session_key=...)` | arbitrary external session keys accepted (`f"visitor:{visitor_id}:{session_key}"`) |
+| `RequestContext.session_key` is available inside tool `execute()` | per-request visitor binding for `submit_card`/`rag_search` is recovered from the server-generated namespaced session key, never from client-controlled message text |
 | `bot.runtime.add_context_provider(async fn(RequestContext) -> RuntimeContextBlock)` | injects per-turn, metadata-only context (profile/disclosure) into the prompt; runtime-context markers are stripped on history replay (`RUNTIME_CONTEXT_HISTORY_META`) so context is re-resolved fresh each turn |
 | built-in tools gated by `tools.<name>.enable` config | disable exec/web/file/cli_apps/image_gen/my for visitor-facing agent; only our two tools remain |
 | API keys must be in nanobot config (`${ENV}` interpolation supported) | we generate nanobot config from Silentary config at startup |
@@ -32,8 +32,8 @@ Nginx (80/443) ──> uvicorn :8000  FastAPI app
                      └── workspaces/{visitor_id}/*.md on disk
 ```
 
-- **One shared `Nanobot` instance** for all visitors; isolation via session keys +
-  attributes. Spec allows a separate process only if necessary — it is not: the SDK is an
+- **One shared `Nanobot` instance** for all visitors; isolation via namespaced session
+  keys. Spec allows a separate process only if necessary — it is not: the SDK is an
   ordinary asyncio object, sessions are keyed arbitrarily, and per-session locks serialize
   same-session turns while different sessions run concurrently.
 - **Visitor UI: plain HTML+JS (no framework). Owner dashboard: plain HTML+JS.** Served as
@@ -53,10 +53,11 @@ Nginx (80/443) ──> uvicorn :8000  FastAPI app
    `sessions.visitor_id == auth.visitor_id` (DB), then maps to nanobot session key
    `visitor:{visitor_id}:{session_key}` — so even a guessed/foreign session_key cannot
    reach another visitor's nanobot session (key namespace is per-visitor).
-4. **Agent tools:** `submit_card`/`rag_search` read `RequestContext.attributes["visitor_id"]`
-   (set by the server on `bot.run`), NOT from the message text. No attribute → tool refuses.
+4. **Agent tools:** `submit_card`/`rag_search` parse `RequestContext.session_key`
+   in the server-generated form `visitor:{visitor_id}:{session_key}`, NOT from the
+   message text. No valid namespaced session key → tool refuses.
 5. **RAG:** per-workspace `MicroRAG` instances keyed by visitor_id, built only from that
-   workspace's Markdown files. Tool resolves the workspace from attributes; no query
+   workspace's Markdown files. Tool resolves the workspace from the namespaced session key; no query
    parameter can cross workspaces.
 6. **Path safety:** workspace dir for a visitor is `workspaces/{visitor_id}` where
    visitor_id is DB-issued (UUID hex). Files listed by `os.walk`, resolved and
@@ -91,16 +92,17 @@ Nginx (80/443) ──> uvicorn :8000  FastAPI app
 - Register after construction: `bot._loop.tools.register(SubmitCardTool(...))`,
   `bot._loop.tools.register(RagSearchTool(...))`.
 - Context provider: resolves visitor profile/disclosure blocks per turn from
-  `attributes["visitor_id"]` (falls back to `RequestContext.session_key` prefix
-  `visitor:{id}:`), reads the visitor workspace's `profile.md` + disclosure text, bounded
+  the `RequestContext.session_key` prefix `visitor:{id}:`, reads the visitor
+  workspace's `profile.md` + disclosure text, bounded
   (e.g. 4k chars), wrapped in RuntimeContextBlock(source="silentary_workspace").
 - Session keys: `visitor:{visitor_id}:{session_key}`; channel label `silentary`.
 - `submit_card(summary, context=None)`: writes a row to `cards` + updates
   `sessions.updated_at`; returns confirmation text to the LLM.
-- `rag_search(query)`: resolves workspace from attributes; lazily builds/reuses a
+- `rag_search(query)`: resolves workspace from the namespaced session key; lazily builds/reuses a
   per-workspace MicroRAG index (invalidated by workspace file mtimes); returns top-k
-  snippets (top_k=6, threshold 0.0) or "no relevant info" — graceful degradation on any
-  error (returns a message, never raises into the agent loop).
+  snippets (top_k=6, threshold 0.0). If MicroRAG or its numeric dependencies are
+  unavailable, it falls back to a small same-workspace Markdown keyword search.
+  Any retrieval error degrades gracefully and never raises into the agent loop.
 - On shutdown: `await bot.aclose()`.
 
 ## 5. API surface

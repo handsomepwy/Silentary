@@ -120,7 +120,7 @@ or stop the service briefly.
 .venv/Scripts/python -m pytest tests/ -q
 ```
 
-18 tests cover auth (visitor + owner), session ownership, workspace path-escape,
+23 tests cover auth (visitor + owner), session ownership, workspace path-escape,
 RAG cross-visitor isolation, card persistence, rate limiting, and the
 agent-unavailable degradation path.
 
@@ -137,7 +137,9 @@ agent-unavailable degradation path.
   adds coarse IP limits on top.
 - **Microrag** is installed with `--ignore-requires-python` on 3.11 (metadata
   pins ≥3.12; wheel verified working). When your deploy target has 3.12+, drop
-  the flag.
+  the flag. If MicroRAG or its numeric dependencies are unavailable, Silentary
+  falls back to a small same-workspace Markdown keyword search so retrieval
+  degrades safely without crossing visitor boundaries.
 
 ## Known limitations (MVP)
 

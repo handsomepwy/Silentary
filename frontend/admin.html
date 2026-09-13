@@ -436,10 +436,10 @@ $("nvCreate").onclick = async () => {
 $("newCredBtn").onclick = async () => {
   if (!confirm("Issue a new credential for this visitor?")) return;
   const data = await api("POST", "/api/owner/visitors/" + currentVisitor + "/credentials");
+  await openVisitor(currentVisitor);
   const box = $("credTokenBox");
   box.innerHTML = `<strong>New credential token (shown once — copy it now):</strong><br>${esc(data.token)}`;
   box.classList.remove("hidden");
-  openVisitor(currentVisitor);
 };
 
 $("deleteVisitorBtn").onclick = async () => {
