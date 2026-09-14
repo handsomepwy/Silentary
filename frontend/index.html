@@ -258,6 +258,7 @@ function addPlaceholder(text) {
   bubble.textContent = text;
   wrap.appendChild(bubble);
   $("messages").appendChild(wrap);
+  return wrap;
 }
 
 async function sendMessage() {
@@ -273,10 +274,10 @@ async function sendMessage() {
   try {
     const data = await api("POST", "/api/visitor/chat",
       { session_key: currentSession, message: text });
-    thinking.remove();
+    thinking?.remove();
     addMessage("assistant", data.reply);
   } catch (e) {
-    thinking.remove();
+    thinking?.remove();
     addPlaceholder(e.status === 503 ? "The assistant is unavailable right now. Please try again later."
       : e.status === 429 ? "You're sending messages too quickly. Please slow down."
       : ("Error: " + e.message));
