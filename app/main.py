@@ -98,14 +98,22 @@ async def _read_json_body(request: Request) -> tuple[dict | None, JSONResponse |
         except ValueError:
             return None, _json_error(400, "invalid request body")
     # Streamed read backstop (no/trick Content-Length: chunked, mismatched).
+    # Hold ONE stream generator for the whole loop — request.stream() returns
+    # a fresh generator per call and a second generator on a consumed body
+    # raises RuntimeError("Stream consumed").
     chunks: list[bytes] = []
     total = 0
+    stream = request.stream()
     while True:
-        chunk = await request.stream().__anext__()
+        try:
+            chunk = await stream.__anext__()
+        except StopAsyncIteration:
+            break
         if not chunk:
             break
         total += len(chunk)
         if total > _MAX_BODY_BYTES:
+            await stream.aclose()
             return None, _json_error(413, "request body too large")
         chunks.append(chunk)
     try:

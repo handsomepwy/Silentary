@@ -228,3 +228,42 @@ async def test_owner_routes_also_capped(client):
     res = await c.post("/api/owner/visitors", headers=auth, content=b"{oops",
                        )
     assert res.status_code == 400
+
+
+async def test_body_read_works_under_uvicorn_framing(client):
+    """Regression: _read_json_body must work with real-server message framing.
+
+    The httpx ASGITransport used by the test client delivers the whole body
+    in one receive message; production uvicorn/httptools does the same but
+    the old loop re-acquired request.stream() every iteration, which raises
+    RuntimeError("Stream consumed") on the second pass — a plain 200-byte
+    POST then died as a 500 in production while tests stayed green. Drive
+    the app through a raw ASGI scope whose receive yields uvicorn-style
+    messages to pin the framing the real server produces.
+    """
+    c, h = client
+    app = h.app
+    received: dict = {}
+
+    async def receive():
+        # uvicorn-style: single http.request message, more_body=False.
+        if not received.get("sent"):
+            received["sent"] = True
+            return {"type": "http.request", "body": b'{"token": "t"}', "more_body": False}
+        return {"type": "http.request", "body": b"", "more_body": False}
+
+    async def send(message):
+        received.setdefault("responses", []).append(message)
+
+    scope = {
+        "type": "http", "asgi": {"version": "3.0"},
+        "method": "POST", "path": "/api/visitor/login",
+        "headers": [(b"content-type", b"application/json"),
+                    (b"content-length", str(14).encode())],
+        "query_string": b"", "client": ("203.0.113.9", 55555), "server": None,
+    }
+    # Must not raise — the old code raised RuntimeError("Stream consumed").
+    await app(scope, receive, send)
+    responses = received["responses"]
+    start = next(m for m in responses if m["type"] == "http.response.start")
+    assert start["status"] in (200, 401)  # parsed OK; token validity is not the point
