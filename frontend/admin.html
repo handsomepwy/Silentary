@@ -470,9 +470,9 @@ $("wsSaveBtn").onclick = async () => {
   loadWorkspace(currentVisitor);
 };
 
-if (token) { enterAppInit(); } else { $("login").classList.remove("hidden"); }
+if (token) { enterApp(); } else { $("login").classList.remove("hidden"); }
 
-function enterAppInit() {
+function enterApp() {
   $("login").classList.add("hidden");
   $("shell").classList.remove("hidden");
   loadVisitors();
