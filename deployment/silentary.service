@@ -17,6 +17,13 @@ ExecReload=/bin/kill -HUP $MAINPID
 Restart=always
 RestartSec=5
 
+# nanobot probes legacy fallback dirs under $HOME (~/.nanobot/sessions) on
+# EVERY session operation; under ProtectHome=true those stat() calls throw
+# EACCES (PermissionError, not ENOENT) and kill chat/history/delete. Point
+# HOME into the writable data tree so the legacy path resolves inside it and
+# misses cleanly. Environment= overrides anything in EnvironmentFile.
+Environment=HOME=/opt/silentary/data/nanobot/home
+
 # Hardening
 NoNewPrivileges=true
 PrivateTmp=true
